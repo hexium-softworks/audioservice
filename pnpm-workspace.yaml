@@ -3,10 +3,11 @@ packages:
 
 allowBuilds:
   '@hexium-softworks/log': true
+  "@quenty/deferred": true
   "@quenty/baseobject": true
   "@quenty/loader": true
   "@quenty/maid": true
   "@quenty/nevermore-test-runner": true
+  "@quenty/promise": true
   "@quenty/servicebag": true
   "@quenty/signal": true
-  "@quenty/table": true

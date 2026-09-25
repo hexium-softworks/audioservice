@@ -1,5 +1,5 @@
 {
-  "name": "audioservice",
+  "name": "instancepool",
   "globIgnorePaths": [
     "**/.package-lock.json",
     "**/.pnpm",

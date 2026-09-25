@@ -1,5 +1,5 @@
 {
-  "name": "AudioServiceTest",
+  "name": "InstancePoolTest",
   "globIgnorePaths": [
     "**/.package-lock.json",
     "**/.pnpm",
@@ -14,7 +14,7 @@
       "$properties": {
         "LoadStringEnabled": true
       },
-      "audioservice": {
+      "instancepool": {
         "$path": ".."
       },
       "Script": {

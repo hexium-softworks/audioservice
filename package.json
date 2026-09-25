@@ -1,18 +1,19 @@
 {
-  "name": "@hexium-softworks/audioservice",
-  "version": "1.1.0",
-  "description": "Game-agnostic Nevermore service for Roblox's modern Audio API, including audio graphs, categories, effects, 3D playback, and voice routes.",
+  "name": "@hexium-softworks/instancepool",
+  "version": "1.0.0",
+  "description": "Game-agnostic Nevermore instance pool for Roblox objects with leases, lifecycle tracking, registries, and diagnostics.",
   "keywords": [
     "Roblox",
     "Nevermore",
     "Luau",
-    "Audio"
+    "Pooling",
+    "Instances"
   ],
   "license": "MIT",
   "packageManager": "pnpm@12.4.2",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hexium-softworks/AudioService.git"
+    "url": "git+https://github.com/hexium-softworks/InstancePool.git"
   },
   "files": [
     "src",
@@ -26,9 +27,9 @@
     "@hexium-softworks/log": "^1.0.1",
     "@quenty/loader": "10.11.0",
     "@quenty/maid": "^3.12.0",
+    "@quenty/promise": "^4.0.0",
     "@quenty/servicebag": "^11.21.0",
-    "@quenty/signal": "^7.13.2",
-    "@quenty/table": "^3.9.2"
+    "@quenty/signal": "^7.13.2"
   },
   "devDependencies": {
     "@quenty/nevermore-test-runner": "1.4.0",

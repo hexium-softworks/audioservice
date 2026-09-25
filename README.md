@@ -1,42 +1,225 @@
-# AudioService
+# InstancePool
 
-A game-agnostic Nevermore package for Roblox's modern Audio API.
+A game-agnostic Nevermore package for reusing Roblox `Instance` objects safely.
 
-AudioService builds local audio graphs from `AudioPlayer`, `AudioEmitter`,
-`AudioListener`, `AudioDeviceInput`, `AudioDeviceOutput`, audio effects, and
-`Wire`. It does not create or manage legacy `Sound`, `SoundGroup`, or
-`SoundEffect` instances.
+`InstancePool` owns creation, reuse, lifecycle tracking, statistics, and optional
+registry lookup. Your game owns object-specific initialization and reset behavior
+through callbacks.
 
 ## Installation
 
 ```sh
-pnpm add @hexium-softworks/audioservice
+pnpm add @hexium-softworks/instancepool
 ```
 
-This package expects a Roblox runtime with the modern Audio API enabled.
+## Standalone Usage
 
-## Nevermore Usage
-
-`AudioService` and `AudioServiceClient` are Nevermore services. Require them
-through `ServiceBag`, not by calling methods directly on the module table.
-
-Server:
+Use the core class directly when a system owns its own pool.
 
 ```lua
 local require = require(script.Parent.loader).load(script)
 
-local AudioService = require("AudioService")
+local InstancePool = require("InstancePool")
+local PoolOverflowPolicy = require("PoolOverflowPolicy")
 
-function GameAudioService:Init(serviceBag)
-	self._audioService = serviceBag:GetService(AudioService)
+local projectilePool = InstancePool.new({
+	Name = "Projectiles",
+	Template = projectileTemplate,
+
+	InitialCapacity = 32,
+	MaxCapacity = 128,
+	ExpandBy = 16,
+	Container = pooledInstancesFolder,
+	OverflowPolicy = PoolOverflowPolicy.Grow,
+
+	OnAcquire = function(projectile, context)
+		projectile.CFrame = context.CFrame
+		projectile.Parent = context.Parent
+	end,
+
+	OnRelease = function(projectile)
+		projectile.AssemblyLinearVelocity = Vector3.zero
+		projectile.AssemblyAngularVelocity = Vector3.zero
+	end,
+})
+
+local lease = projectilePool:Acquire({
+	CFrame = spawnCFrame,
+	Parent = workspace.Projectiles,
+})
+
+local projectile = lease:GetInstance()
+
+lease:Release()
+```
+
+## Creation
+
+A pool must define exactly one creation mechanism.
+
+Template cloning:
+
+```lua
+local pool = InstancePool.new({
+	Template = workspace.ProjectileTemplate,
+})
+```
+
+Custom factory:
+
+```lua
+local pool = InstancePool.new({
+	Factory = function()
+		local part = Instance.new("Part")
+		part.Anchored = true
+		part.CanCollide = false
+		return part
+	end,
+})
+```
+
+Factories must return a fresh `Instance` each time.
+
+## Leases
+
+`Acquire()` returns an `InstancePoolLease`.
+
+```lua
+local lease = pool:Acquire()
+local instance = lease:GetInstance()
+
+lease:GetMaid():GiveTask(instance.Touched:Connect(function(hit)
+	print(hit)
+end))
+
+lease:Release()
+```
+
+Release cleans the lease Maid before the pool runs `OnRelease`. Double release,
+stale release, and wrong-pool release fail safely and return `false`.
+
+`lease:Destroy()` aliases `lease:Release()` for Maid compatibility.
+
+## Raw Convenience API
+
+Systems that prefer raw instances can use:
+
+```lua
+local instance = pool:Take()
+pool:Return(instance)
+```
+
+This is checked against the same ownership records, but leases are the preferred
+API because they carry generation and per-use cleanup explicitly.
+
+## Overflow Policies
+
+`PoolOverflowPolicy.Grow` expands by `ExpandBy` when empty until `MaxCapacity`.
+
+`PoolOverflowPolicy.Reject` returns `nil, "PoolExhausted"` from `TryAcquire()`.
+
+`PoolOverflowPolicy.Temporary` creates overflow instances that are destroyed on
+release and never enter the reusable queue.
+
+```lua
+local lease, reason = pool:TryAcquire()
+if not lease then
+	warn(reason)
+end
+```
+
+## Prewarming
+
+```lua
+pool:Prewarm(50)
+```
+
+For batched prewarming:
+
+```lua
+pool:PromisePrewarm(100, {
+	BatchSize = 10,
+	YieldBetweenBatches = true,
+})
+```
+
+`PromisePrewarm` uses Nevermore `Promise`; the rest of the package does not
+require Promise at module load time.
+
+## Reset Behavior
+
+The core pool does not attempt to reset arbitrary Roblox properties. There is no
+universally safe reset for things like `CFrame`, `Transparency`, attributes,
+tags, physics velocity, playback state, child instances, or event connections.
+
+Use `OnRelease` for game-specific reset:
+
+```lua
+OnRelease = function(part)
+	part.CFrame = CFrame.identity
+	part.AssemblyLinearVelocity = Vector3.zero
+	part.AssemblyAngularVelocity = Vector3.zero
+	part:SetAttribute("Owner", nil)
+end
+```
+
+## Lifecycle
+
+Available instances are parented to `Container` or `nil`. Checked-out instances
+are controlled by `OnAcquire` and consumer code.
+
+Methods:
+
+```lua
+pool:Trim(targetAvailable)
+pool:Clear()
+pool:Destroy()
+```
+
+`Trim()` destroys available instances only.
+
+`Clear()` destroys all available instances and prevents already checked-out
+instances from re-entering the pool when released.
+
+`Destroy()` rejects future acquisition, destroys available instances, disconnects
+observers, and marks checked-out instances for destruction when released.
+
+The pool listens to `Instance.Destroying`. If an available or checked-out
+instance is destroyed externally, the pool removes it from tracking and
+invalidates any active lease.
+
+## Stats
+
+```lua
+local stats = pool:GetStats()
+local connection = pool:ObserveStats(function(nextStats)
+	print(nextStats.InUse)
+end)
+```
+
+Stats include available, in-use, reusable, temporary, created, acquired,
+released, reused, destroyed, peak usage, expansion count, and acquire failures.
+
+## Registry Services
+
+Registries are optional. Use them when multiple systems intentionally share a
+pool or when centralized diagnostics are useful.
+
+Server:
+
+```lua
+local InstancePoolService = require("InstancePoolService")
+
+function MyService:Init(serviceBag)
+	self._poolService = serviceBag:GetService(InstancePoolService)
 end
 
-function GameAudioService:Start()
-	self._audioService:RegisterCategories({
-		{ Name = "Music", Volume = 0.8 },
-		{ Name = "SoundEffects", Volume = 1 },
-		{ Name = "Voice", Volume = 1 },
-		{ Name = "Ambience", Volume = 1 },
+function MyService:Start()
+	self._poolService:CreatePool("VFX.Explosions", {
+		Factory = function()
+			return Instance.new("Part")
+		end,
+		InitialCapacity = 16,
 	})
 end
 ```
@@ -44,422 +227,57 @@ end
 Client:
 
 ```lua
-local require = require(script.Parent.loader).load(script)
-
-local AudioServiceClient = require("AudioServiceClient")
-
-function GameAudioClient:Init(serviceBag)
-	self._audioClient = serviceBag:GetService(AudioServiceClient)
-end
-
-function GameAudioClient:Start()
-	self._audioClient:RegisterCategories({
-		{ Name = "Music", Volume = 0.8 },
-		{ Name = "SoundEffects", Volume = 1 },
-		{ Name = "Voice", Volume = 1 },
-		{ Name = "Ambience", Volume = 1 },
-	})
-end
+local InstancePoolServiceClient = require("InstancePoolServiceClient")
 ```
 
-Keep `Init` lightweight and non-yielding. Register static definitions in
-`Start`, or from another game service after the `ServiceBag` has initialized.
+Server and client registries are independent. They do not replicate pooled
+instances or pool state.
 
-## Model
-
-AudioService treats every playback or voice path as a graph:
-
-```txt
-AudioPlayer -> GraphVolume -> MasterVolume -> CategoryVolume -> Effects -> Output
-AudioPlayer -> GraphVolume -> MasterVolume -> CategoryVolume -> Effects -> Emitter
-AudioDeviceInput -> GraphVolume -> MasterVolume -> CategoryVolume -> Effects -> Output/Emitter
-AudioListener -> AudioDeviceOutput
-```
-
-`Master` is built in. Games can add categories such as `Music`,
-`SoundEffects`, `Voice`, `Ambience`, `Weapons`, `Explosions`, or `Alarms`, then
-wire their settings UI to `SetCategoryVolume()`.
-
-The package creates no remotes, owns no player permission policy, and persists
-no settings. Game code decides what should play, who can speak on a channel, and
-where user settings are stored.
-
-## Shared Definitions
-
-Most games will define categories, assets, and effect presets in one game-owned
-module, then register the relevant definitions on the server and client. This
-keeps the package pure while giving every game a single audio vocabulary.
+Registry methods:
 
 ```lua
-return {
-	Categories = {
-		{ Name = "Music", Volume = 0.8 },
-		{ Name = "SoundEffects", Volume = 1 },
-		{ Name = "Voice", Volume = 1 },
-		{ Name = "Weapons", Volume = 1 },
-		{ Name = "Alarms", Volume = 1 },
-	},
-
-	Effects = {
-		{
-			Name = "Radio",
-			Effects = {
-				{
-					Name = "RadioEQ",
-					ClassName = "AudioEqualizer",
-					Properties = {
-						LowGain = -18,
-						MidGain = 2,
-						HighGain = -10,
-						MidRange = NumberRange.new(300, 3400),
-					},
-				},
-				{
-					Name = "RadioCompressor",
-					ClassName = "AudioCompressor",
-					Properties = {
-						Threshold = -18,
-						Ratio = 4,
-					},
-				},
-			},
-		},
-	},
-
-	Assets = {
-		{
-			Name = "AlarmLoop",
-			Asset = "rbxassetid://123456789",
-			Category = "Alarms",
-			Looping = true,
-			Volume = 0.7,
-			EffectPresets = { "Radio" },
-		},
-	},
-}
+service:CreatePool(name, config)
+service:GetPool(name)
+service:FindPool(name)
+service:DestroyPool(name)
+service:ObservePool(name, callback)
 ```
 
-Register definitions where they are needed:
-
-```lua
-audioService:RegisterCategories(AudioDefinitions.Categories)
-audioService:RegisterEffects(AudioDefinitions.Effects)
-audioService:RegisterAssets(AudioDefinitions.Assets)
-
-audioClient:RegisterCategories(AudioDefinitions.Categories)
-audioClient:RegisterEffects(AudioDefinitions.Effects)
-audioClient:RegisterAssets(AudioDefinitions.Assets)
-```
-
-## Basic Examples
-
-Play one local UI or gameplay sound:
-
-```lua
-local click = audioClient:Play2D({
-	Name = "ButtonClick",
-	Asset = "rbxassetid://123456789",
-	Category = "SoundEffects",
-	Volume = 0.6,
-})
-
-click:Destroy()
-```
-
-Play looping music with a Maid-compatible handle:
-
-```lua
-local Maid = require("Maid")
-
-local maid = Maid.new()
-
-local music = maid:Add(audioClient:Play2D({
-	Name = "RoundMusic",
-	Asset = "rbxassetid://234567891",
-	Category = "Music",
-	Looping = true,
-	Volume = 0.4,
-}))
-
-music:SetVolume(0.25)
-music:Stop()
-music:Play()
-```
-
-Play positional ambience from an existing world object:
-
-```lua
-maid:GiveTask(audioClient:Play3D({
-	Name = "GeneratorHum",
-	Asset = "rbxassetid://987654321",
-	Category = "Ambience",
-	Looping = true,
-	Parent = workspace.Generator,
-}))
-```
-
-## Lifetime Management
-
-Playback and voice APIs return audio handles, not Maids. This keeps the useful
-controls available while still fitting Nevermore cleanup patterns. Every handle
-implements `Destroy()`, so it can be passed directly to `Maid:Add()` or
-`Maid:GiveTask()`.
-
-Use `Maid:Add()` when you still need to control the sound:
-
-```lua
-local music = maid:Add(audioClient:Play2D({
-	Name = "RoundMusic",
-	Asset = "rbxassetid://234567891",
-	Category = "Music",
-	Looping = true,
-}))
-
-music:SetVolume(0.5)
-```
-
-Use `Maid:GiveTask()` when ownership is all you need:
-
-```lua
-maid:GiveTask(audioClient:Play3D({
-	Name = "WindLoop",
-	Asset = "rbxassetid://345678912",
-	Category = "Ambience",
-	Looping = true,
-	Parent = workspace.Cliff,
-}))
-```
-
-For short one-shot sounds, store the handle only if you need to stop, fade, or
-destroy it manually. For looping music, ambience, emitters, and voice routes,
-own the handle with a Maid. Destroying a handle cleans up the generated audio
-instances, wires, category observers, and temporary graph folders.
-
-## Intermediate Examples
-
-Connect a settings menu to category volumes:
-
-```lua
-local connection = audioClient:ObserveCategoryVolume("Music", function(volume)
-	musicSlider.Value = volume
-end)
-
-maid:GiveTask(connection)
-
-musicSlider.Changed:Connect(function(volume)
-	audioClient:SetCategoryVolume("Music", volume)
-end)
-```
-
-Use a named asset with defaults:
-
-```lua
-audioClient:RegisterAssets({
-	{
-		Name = "RoundAlarm",
-		Asset = "rbxassetid://345678912",
-		Category = "Alarms",
-		Looping = true,
-		Volume = 0.75,
-		EffectPresets = { "Radio" },
-	},
-})
-
-local alarm = audioClient:Play2D({
-	AssetName = "RoundAlarm",
-})
-
-alarm:SetVolume(0.5)
-```
-
-Create a custom 3D emitter with explicit distance falloff:
-
-```lua
-local emitter = audioClient:CreateEmitter(workspace.ExplosionOrigin, {
-	Name = "ExplosionEmitter",
-	DistanceAttenuation = {
-		[0] = 1,
-		[200] = 0.65,
-		[600] = 0.2,
-		[1200] = 0,
-	},
-})
-
-audioClient:Play3D({
-	Name = "FarExplosion",
-	Asset = "rbxassetid://987654321",
-	Category = "Explosions",
-	Volume = 1,
-	Emitter = emitter,
-})
-```
-
-## Advanced Examples
-
-Build reusable distant-combat effects without hard-coding combat into the
-package:
-
-```lua
-audioClient:RegisterEffects({
-	{
-		Name = "DistantMuffle",
-		Effects = {
-			{
-				Name = "DistantEQ",
-				ClassName = "AudioEqualizer",
-				Properties = {
-					LowGain = 1,
-					MidGain = -4,
-					HighGain = -18,
-					MidRange = NumberRange.new(400, 3000),
-				},
-			},
-			{
-				Name = "DistantCompressor",
-				ClassName = "AudioCompressor",
-				Properties = {
-					Threshold = -14,
-					Ratio = 3,
-					Attack = 0.02,
-					Release = 0.25,
-				},
-			},
-		},
-	},
-})
-
-local shot = audioClient:Play3D({
-	Name = "FarRifleShot",
-	Asset = "rbxassetid://123456789",
-	Category = "Weapons",
-	Volume = 0.8,
-	Parent = workspace.DistantFightOrigin,
-	EffectPresets = { "DistantMuffle" },
-})
-
-shot:SetEffectBypass("DistantEQ", false)
-```
-
-Route local voice through a generic effect chain:
-
-```lua
-audioClient:SetCategoryVolume("Voice", 0.75)
-
-local filteredVoice = audioClient:CreateVoiceRoute({
-	Name = "FilteredVoice",
-	Category = "Voice",
-	Target = audioClient:EnsureDefaultOutput(),
-	EffectPresets = { "Radio" },
-})
-
-maid:GiveTask(filteredVoice)
-```
-
-Apply per-playback effects when a full preset is not worth registering:
-
-```lua
-local underwaterAmbience = audioClient:Play2D({
-	Name = "UnderwaterAmbience",
-	Asset = "rbxassetid://456789123",
-	Category = "Ambience",
-	Looping = true,
-	Effects = {
-		{
-			Name = "UnderwaterEQ",
-			ClassName = "AudioEqualizer",
-			Properties = {
-				LowGain = 4,
-				MidGain = -8,
-				HighGain = -24,
-			},
-		},
-		{
-			Name = "UnderwaterReverb",
-			ClassName = "AudioReverb",
-			Properties = {
-				WetLevel = -8,
-				DryLevel = -2,
-			},
-		},
-	},
-})
-
-underwaterAmbience:SetEffectBypass("UnderwaterReverb", true)
-```
-
-## Common Use Cases
-
-- Settings menus: store player preferences in your game, then call
-  `SetCategoryVolume()` on the client.
-- Music: use `Play2D()` with the `Music` category and own the Maid-compatible
-  handle for as long as the music should live.
-- UI and SFX: use `Play2D()` with short-lived handles, or named assets for common
-  cues.
-- World ambience: use `Play3D()` with a world parent and optional custom emitter
-  attenuation.
-- Weapons and explosions: use `Play3D()` plus reusable effect presets for distant
-  or muffled variants.
-- Voice chat processing: create local `AudioDeviceInput` routes with
-  `CreateVoiceRoute()`. The game owns permissions, channels, and policy.
+Duplicate names are rejected.
 
 ## API Reference
 
-Server `AudioService`:
+Core:
 
 | Method | Description |
 | --- | --- |
-| `GetRootFolder()` | Returns the replicated audio registry folder. |
-| `RegisterCategories(categories)` | Registers category defaults. |
-| `RegisterEffects(effectPresets)` | Registers reusable ordered effect chains. |
-| `RegisterAssets(assets)` | Registers named asset defaults. |
-| `GetCategoryVolume(categoryName)` | Returns a category volume, defaulting to `1`. |
-| `SetCategoryVolume(categoryName, volume)` | Sets a clamped `0..1` category volume. |
-| `GetCategoryVolumeChangedSignal(categoryName)` | Returns the volume changed signal. |
-| `GetAssetConfig(assetName)` | Returns a registered asset config. |
-| `GetEffectPresetConfig(presetName)` | Returns a registered effect preset config. |
+| `InstancePool.new(config)` | Creates a standalone pool. |
+| `Acquire(context?)` | Acquires a lease or errors if unavailable. |
+| `TryAcquire(context?)` | Acquires a lease or returns `nil, reason`. |
+| `Release(instanceOrLease)` | Releases a checked-out instance or lease. |
+| `Take(context?)` | Raw instance convenience acquire. |
+| `Return(instance)` | Raw instance convenience release. |
+| `Prewarm(count)` | Creates reusable available instances. |
+| `PromisePrewarm(count, options?)` | Batched async prewarming. |
+| `Trim(targetAvailable)` | Destroys available instances above the target. |
+| `Clear()` | Destroys available instances and invalidates pool generation. |
+| `Destroy()` | Destroys the pool. |
+| `GetStats()` | Returns a read-only stats snapshot. |
+| `ObserveStats(callback)` | Observes stats changes. |
 
-Client `AudioServiceClient`:
+Config:
 
-| Method | Description |
+| Field | Description |
 | --- | --- |
-| `GetRootFolder()` | Returns the local `SoundService.AudioService` folder. |
-| `RegisterCategories(categories)` | Registers local category defaults. |
-| `RegisterEffects(effectPresets)` | Registers local reusable effect chains. |
-| `RegisterAssets(assets)` | Registers local named assets. |
-| `GetCategoryVolume(categoryName)` | Returns the local category volume. |
-| `SetCategoryVolume(categoryName, volume)` | Sets local category volume. |
-| `GetCategoryVolumeChangedSignal(categoryName)` | Returns the local volume changed signal. |
-| `ObserveCategoryVolume(categoryName, callback)` | Calls immediately and whenever the volume changes. |
-| `EnsureDefaultOutput()` | Returns the local default `AudioDeviceOutput`. |
-| `CreateListener(config?)` | Creates an `AudioListener` and wires it to output. |
-| `CreateEmitter(parent, config?)` | Creates an `AudioEmitter` on a world instance. |
-| `Play2D(config)` | Builds and starts a 2D `AudioPlayer` graph. |
-| `Play3D(config)` | Builds and starts a 3D `AudioPlayer` to `AudioEmitter` graph. |
-| `CreateVoiceInput(config?)` | Creates an `AudioDeviceInput` for the local player by default. |
-| `CreateVoiceRoute(config)` | Wires voice input through category/effects to an output or emitter. |
-
-## Supported Effects
-
-`AudioFader`, `AudioEqualizer`, `AudioCompressor`, `AudioReverb`,
-`AudioChorus`, `AudioDistortion`, `AudioEcho`, `AudioFlanger`,
-`AudioPitchShifter`, `AudioTremolo`, `AudioFilter`, `AudioLimiter`, and
-`AudioGate`.
-
-Effects are applied in the order they appear. Unknown top-level config fields
-are rejected, while effect `Properties` are passed to the Roblox instance so the
-engine remains the source of truth for property support.
-
-## Architecture Notes
-
-- Use `ServiceBag:GetService()` for `AudioService` and `AudioServiceClient`.
-- This package is a Nevermore service pair plus small shared utilities, not a
-  full game audio framework.
-- `Init` creates registries and folders only; runtime playback happens through
-  explicit API calls.
-- All generated graph handles implement `Destroy()`, so they fit naturally into
-  Nevermore `Maid` cleanup.
-- The services use `@hexium-softworks/log` for structured lifecycle and
-  registration logs; configure Log levels or sinks in your game if you want to
-  surface or suppress them.
-- No remotes are created. Server registration is a registry/default layer;
-  clients own local playback graphs and local user settings.
+| `Name` | Human-readable pool name. |
+| `Template` | Instance to clone. Mutually exclusive with `Factory`. |
+| `Factory` | Function returning a fresh Instance. |
+| `InitialCapacity` | Number of instances to prewarm at construction. |
+| `MaxCapacity` | Maximum reusable capacity. Defaults to unbounded. |
+| `ExpandBy` | Grow batch size. Defaults to `1`. |
+| `Container` | Parent for available instances, or `nil`. |
+| `OverflowPolicy` | `Grow`, `Reject`, or `Temporary`. |
+| `OnAcquire` | Synchronous callback run after checkout. |
+| `OnRelease` | Synchronous callback run before reusable return. |
+| `LeakWarningSeconds` | Optional retained-lease warning threshold. |
+| `CaptureAcquireTracebacks` | Optional traceback capture for leak diagnostics. |

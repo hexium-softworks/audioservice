@@ -175,15 +175,15 @@ importers:
       '@quenty/maid':
         specifier: ^3.12.0
         version: 3.12.0
+      '@quenty/promise':
+        specifier: ^4.0.0
+        version: 4.2.0
       '@quenty/servicebag':
         specifier: ^11.21.0
         version: 11.21.0
       '@quenty/signal':
         specifier: ^7.13.2
         version: 7.13.2
-      '@quenty/table':
-        specifier: ^3.9.2
-        version: 3.9.2
     devDependencies:
       '@quenty/nevermore-test-runner':
         specifier: 1.4.0
@@ -200,11 +200,20 @@ packages:
   '@quenty/baseobject@10.16.0':
     resolution: {integrity: sha512-9czIByHnoNMa4J7ZbhP4k1L8wtHMlKU0LqTTeiIhIQ0ndrUy+0JFh7gjHxQ9q3o+RJnCH5/UGicFhQupHGPsig==}
 
+  '@quenty/deferred@2.3.2':
+    resolution: {integrity: sha512-/8C9cJtnsRa+hvmW5Q94JdZtUz+OUg1+oGq2/3PHTWCoVtmwLTxR+5AHpYzQKaitEIxAIQaZqhuhp5mOTMteTw==}
+
   '@quenty/loader@10.11.0':
     resolution: {integrity: sha512-dijfRLI2bouQjt9OG20aL7waEzJNzzFMXC3+NFm2meCQ7jvCTI5EgmW3eYZHmegFAzmrWtogbQPNR+pIb8T3Zg==}
 
   '@quenty/loader@10.11.1':
     resolution: {integrity: sha512-HPZhnFozgOIyShf6csD4Na3A1rTJrD6K6uERe069jC9iNaMdDj8qtgkdmqssK7SGaXV3l27h5kmbBDsryANOGA==}
+
+  '@quenty/loader@4.1.0':
+    resolution: {integrity: sha512-LQ1fHidXhDAq5LqyafsSLvW2wlH7/5Aihq8lOpFnitqXQaEihP4Bckr3Pd+5MEO86NXE9ogT0pRICpE5GiUWsg==}
+
+  '@quenty/maid@2.6.0':
+    resolution: {integrity: sha512-rIo3S55ZsEmzDIXklh+mSzBEbw3GxhkTUDjsN5oNmhAOWsVYcPOVdq87l/KYMmY5gX44mW3a/gUdxYay5mD+6A==}
 
   '@quenty/maid@3.12.0':
     resolution: {integrity: sha512-4WRNa6YypPMMYsj20ryHZ+X0h18psqZAMNahjsmCKZoYKOzv4gbofdBCs530ig+9o4Q78Z4roz2iSAwF1fruxg==}
@@ -215,14 +224,14 @@ packages:
   '@quenty/nevermore-test-runner@1.6.0':
     resolution: {integrity: sha512-P+ilZn+UCtPJ/LBIErEgZrRKASIBaJYdxaIx1ca8SM3zwY35TobcYsdZLfboBdhfyHz5Wgxvl42wIWQtuTpxSQ==}
 
+  '@quenty/promise@4.2.0':
+    resolution: {integrity: sha512-dXqzuceEGlsCA/VfMT2v4D6MPeiuy23JbXPUzUb72Nk0k4BuLgdNA2RkV5WP/ovypuLFT9wN3AqQBO/YEC2JDA==}
+
   '@quenty/servicebag@11.21.0':
     resolution: {integrity: sha512-iAWFdR2wL/+LuEB5sIQEXlLPT767XC7mGM3tVXxURLyBeECiGFj7vXs/bQWQ3FhqY3/DEp/JT/8fXDmDHII8Ig==}
 
   '@quenty/signal@7.13.2':
     resolution: {integrity: sha512-jOLfC8XLxZBr0vpjHA52UT3/hox6j6oa/DkGv6OL8ZMRLSVR5Ppr1O5eDRbIsdcze/yG/J9jQ2xWx8eHLBgPUw==}
-
-  '@quenty/table@3.9.2':
-    resolution: {integrity: sha512-uU0XEiWk2CHtdhcBnM2F7sU7jljD/D0crntozfPLfyl4BOHT3oWNr0HF7IfrKVxVo3WnDj3KBXV6iMmYY6q9vQ==}
 
   '@quentystudios/jest-lua@3.10.0-quenty.2':
     resolution: {integrity: sha512-TE7vhnYjygcBjjqeKLsmbwxhJeiDeekh/E2xcvQ0VZAwHNr+Yn1pk1n/PRJu+KtH2fWYkw20pQO4o/hKPs0lRA==}
@@ -238,9 +247,15 @@ snapshots:
       '@quenty/loader': 10.11.1
       '@quenty/maid': 3.12.0
 
+  '@quenty/deferred@2.3.2': {}
+
   '@quenty/loader@10.11.0': {}
 
   '@quenty/loader@10.11.1': {}
+
+  '@quenty/loader@4.1.0': {}
+
+  '@quenty/maid@2.6.0': {}
 
   '@quenty/maid@3.12.0':
     dependencies:
@@ -258,6 +273,12 @@ snapshots:
       '@quenty/loader': 10.11.1
       '@quentystudios/jest-lua': 3.10.0-quenty.2
 
+  '@quenty/promise@4.2.0':
+    dependencies:
+      '@quenty/deferred': 2.3.2
+      '@quenty/loader': 4.1.0
+      '@quenty/maid': 2.6.0
+
   '@quenty/servicebag@11.21.0':
     dependencies:
       '@quenty/baseobject': 10.16.0
@@ -269,7 +290,5 @@ snapshots:
   '@quenty/signal@7.13.2':
     dependencies:
       '@quenty/loader': 10.11.1
-
-  '@quenty/table@3.9.2': {}
 
   '@quentystudios/jest-lua@3.10.0-quenty.2': {}
